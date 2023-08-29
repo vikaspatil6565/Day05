@@ -1,0 +1,111 @@
+package study;
+
+import org.w3c.dom.*;
+import javax.xml.parsers.*;
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+
+public class XmlParser {
+    public static void main(String[] args) {
+        String jdbcUrl = "jdbc:mysql://localhost:3306/demo";
+        String username = "root";
+        String password = "Vik@spatil6565";
+
+        try {
+            File inputFile = new File("D:\\ENOVIA3D\\TestDemo\\XMLFile\\Myfile.xml");
+            DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+            Document doc = dBuilder.parse(inputFile);
+            doc.getDocumentElement().normalize();
+
+            Map<String, String> keyValueMap = new LinkedHashMap<>(); // Use LinkedHashMap to maintain insertion order
+            traverseNodes(doc.getDocumentElement(), "", keyValueMap);
+
+            createTableAndInsertData(jdbcUrl, username, password, keyValueMap);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void traverseNodes(Node node, String parentPath, Map<String, String> keyValueMap) {
+        if (node.getNodeType() == Node.ELEMENT_NODE) {
+            String nodeName = node.getNodeName().replace(".", "_"); // Replace . with _
+            String newPath = parentPath.isEmpty() ? nodeName : parentPath + "_" + nodeName;
+
+            NodeList childNodes = node.getChildNodes();
+
+            boolean hasChildren = false;
+
+            for (int i = 0; i < childNodes.getLength(); i++) {
+                Node childNode = childNodes.item(i);
+                if (childNode.getNodeType() == Node.ELEMENT_NODE) {
+                    hasChildren = true;
+                    break;
+                }
+            }
+
+            if (!newPath.equals("root") && !newPath.equals("items")) {
+                String key = newPath.startsWith("root_") ? newPath.substring(5) : newPath;
+                String value = node.getTextContent().trim();
+                
+                if (hasChildren || value.isEmpty()) {
+                    keyValueMap.put(key, "NULL");
+                } else {
+                    keyValueMap.put(key, value);
+                }
+            }
+
+            for (int i = 0; i < childNodes.getLength(); i++) {
+                Node childNode = childNodes.item(i);
+                traverseNodes(childNode, newPath, keyValueMap);
+            }
+        }
+    }
+
+    public static void createTableAndInsertData(String jdbcUrl, String username, String password, Map<String, String> keyValueMap) {
+        try {
+            Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+
+            StringBuilder createTableQuery = new StringBuilder("CREATE TABLE IF NOT EXISTS demovikas (");
+            StringBuilder insertDataQuery = new StringBuilder("INSERT INTO demovikas (");
+            StringBuilder valuesPart = new StringBuilder(") VALUES (");
+
+            for (Map.Entry<String, String> entry : keyValueMap.entrySet()) {
+                String columnName = entry.getKey();
+                String dataType = determineDataType(entry.getValue());
+
+                createTableQuery.append(columnName).append(" ").append(dataType).append(", ");
+                insertDataQuery.append(columnName).append(", ");
+                valuesPart.append("'").append(entry.getValue()).append("', ");
+            }
+
+            createTableQuery.setLength(createTableQuery.length() - 2);
+            insertDataQuery.setLength(insertDataQuery.length() - 2);
+            valuesPart.setLength(valuesPart.length() - 2);
+
+            createTableQuery.append(")");
+            insertDataQuery.append(valuesPart).append(")");
+
+            try (Statement createTableStatement = connection.createStatement()) {
+                createTableStatement.executeUpdate(createTableQuery.toString());
+            }
+
+            connection.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static String determineDataType(String value) {
+        if (value.equalsIgnoreCase("NULL")) {
+            return "VARCHAR(255)";
+        } else if (value.matches("\\d+")) {
+            return "INT";
+        } else if (value.matches("\\d+\\.\\d+")) {
+            return "DOUBLE";
+        } else {
+            return "VARCHAR(255)";
+        }
+    }
+}
